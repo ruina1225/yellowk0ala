@@ -1,4 +1,5 @@
 from random import randint
+
 turn = 0 
 def getUserAns():
     userAns = int(input("뭐 : "))

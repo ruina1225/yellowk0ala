@@ -22,6 +22,8 @@
 # 패
 # 3연승
 
+from random import randint
+
 def printRule(handTable):
     for i in range(len(handTable)):
         if i !=0:
@@ -39,3 +41,20 @@ def userFire():
     return userFire()
 
 userFire()
+
+def comFire():
+    return randint(1, 3)
+
+def printHand(userHand, comHand, handTable):
+    print("나 : %s" % handTable[userHand])
+    print("컴 : %s" % handTable[comHand])
+
+def judge(userHand, comHand):
+    t = userHand - comHand
+    if t == 0:
+        print("무")
+        return 0 
+    elif t == -1 or t == 2:
+        print("패")
+        return 322
+    

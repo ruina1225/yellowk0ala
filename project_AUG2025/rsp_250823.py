@@ -39,8 +39,6 @@ def userFire():
         return userHand
     return userFire()
 
-
-
 def comFire():
     return randint(1, 3)
 

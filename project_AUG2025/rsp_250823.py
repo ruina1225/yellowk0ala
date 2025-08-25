@@ -72,4 +72,8 @@ while True:
     comdHand = comFire()
     printHand(userHand, comHand, handTable)
 
-    result = judge(userHand)
+    result = judge(userHand, comHand)
+    if result == 332 :
+        print("%d연승" % win)
+        break
+    win += result

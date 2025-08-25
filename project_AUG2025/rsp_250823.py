@@ -31,8 +31,7 @@ def printRule(handTable):
     print("-----")
 
 handTable = [None, "가위", "바위", "보"]
-
-# printRule(handTable)
+printRule(handTable)
 
 def userFire():
     userHand = int(input("뭐 : "))
@@ -40,7 +39,7 @@ def userFire():
         return userHand
     return userFire()
 
-userFire()
+
 
 def comFire():
     return randint(1, 3)
@@ -57,4 +56,20 @@ def judge(userHand, comHand):
     elif t == -1 or t == 2:
         print("패")
         return 322
-    
+    else:
+        print("승")
+        return 1
+    return True 
+
+userHand = userFire()
+comHand = comFire()
+printHand(userHand, comHand, handTable)
+judge(userHand, comHand)
+
+win = 0 
+while True:
+    userHand = userFire()
+    comdHand = comFire()
+    printHand(userHand, comHand, handTable)
+
+    result = judge(userHand)

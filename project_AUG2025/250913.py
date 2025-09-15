@@ -1,10 +1,7 @@
-from random import randint
-
-for i in randint(1,30):
-    if i == int(30):
-        return continue
-    elif
-    print(i)
+for i in range(1, 31):
+    if i == int(2):
+        continue
+    print(i) 
 
 
     

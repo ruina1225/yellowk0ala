@@ -3,5 +3,4 @@ for i in range(1, 31):
         continue
     print(i) 
 
-
-    
+#내일하자

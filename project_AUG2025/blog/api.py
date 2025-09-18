@@ -1,6 +1,7 @@
 import openai
 
 openai.api_key = "발급받은_API_KEY"
+# api key는 환경변수로 바꾸자 
 
 response = openai.ChatCompletion.create(
     model="gpt-4o-mini",

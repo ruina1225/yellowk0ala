@@ -13,9 +13,15 @@ notion = Client(auth=NOTION_KEY)
 def save_review_to_notion(topic, weaknesses, improvements, expressions):
     today = str(date.today())
 
+    # 현재 DB의 전체 레코드 수 확인 (→ 순번 자동 증가)
+    db_query = notion.databases.query(database_id=DATABASE_ID)
+    record_count = len(db_query["results"]) + 1
+
     notion.pages.create(
         parent={"database_id": DATABASE_ID},
         properties={
+            # Title 속성 (삭제 불가) → 순번 넣기
+            "No": {"title": [{"text": {"content": str(record_count)}}]},
             "Date": {"date": {"start": today}},
             "Topic": {"rich_text": [{"text": {"content": topic}}]},
             "Weaknesses": {"rich_text": [{"text": {"content": ", ".join(weaknesses)}}]},

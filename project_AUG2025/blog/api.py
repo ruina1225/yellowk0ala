@@ -1,3 +1,5 @@
+# 250917
+
 import openai
 
 openai.api_key = "발급받은_API_KEY"

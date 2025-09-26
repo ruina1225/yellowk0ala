@@ -1,0 +1,23 @@
+# ---- Python 캐시/빌드 ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# ---- 가상환경 ----
+.venv/
+venv/
+env/
+
+# ---- 환경 변수 파일 ----
+# 모든 디렉토리의 .env 파일 무시
+**/.env
+**/.env.*
+# 템플릿은 커밋 허용
+!.env.example
+
+# ---- IDE / OS 파일 ----
+.vscode/
+.DS_Store
+Thumbs.db

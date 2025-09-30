@@ -1,0 +1,14 @@
+# HTTP/HTML
+requests
+beautifulsoup4
+lxml
+feedparser
+
+# 템플릿
+Jinja2
+
+# 환경변수
+python-dotenv
+
+# 재시도(선택)
+tenacity

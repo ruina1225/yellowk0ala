@@ -1,8 +1,11 @@
 # llm.py
-# 간단 버전 
+# 간단 버전 (timeout=300, 프록시 무시 적용)
+
 import os
 import requests
 from dotenv import load_dotenv
+
+print("[llm.py] loaded v2 (timeout=300, no proxies)")  # 버전 표식
 
 load_dotenv()
 
@@ -12,7 +15,10 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b-instruct")
 
 def run_llm_transform(raw_text: str) -> str:
     """
-    Ollama generate API (non-stream) 간단 호출. 필요 시 프롬프트를 더 정교화하세요.
+    Ollama generate API (non-stream) 호출.
+    - timeout을 넉넉하게(300초) 설정
+    - 프록시 무시 (기업망/시스템 프록시 문제 회피)
+    - JSON 응답 없을 시 원문 반환
     """
     url = f"{OLLAMA_BASE}/api/generate"
     prompt = (
@@ -20,10 +26,24 @@ def run_llm_transform(raw_text: str) -> str:
         "서론/본문/정리 구조, 소제목 포함, 불필요한 수사는 줄이고 핵심 정보 위주로.\n\n"
         f"원문:\n{raw_text}"
     )
-    resp = requests.post(url, json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False}, timeout=60)
-    data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
-    # Ollama의 /api/generate는 {response: "..."} 형태
-    return data.get("response", raw_text)
+
+    try:
+        resp = requests.post(
+            url,
+            json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False},
+            timeout=300,                               # ← 5분 (모델 로딩 대비)
+            proxies={"http": None, "https": None},     # ← 프록시 무시
+        )
+        resp.raise_for_status()
+        if resp.headers.get("content-type", "").startswith("application/json"):
+            data = resp.json()
+            return data.get("response", raw_text)
+        return raw_text
+    except requests.exceptions.Timeout:
+        return "[ERROR] Ollama 요청이 시간 초과되었습니다."
+    except Exception as e:
+        return f"[ERROR] Ollama 호출 실패: {e}"
+
 
 
 

@@ -1,58 +1,54 @@
-# queue_file.py
-# 간단버전
-import json
-import os
-import time
+import json, shutil, time
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict
 
 BASE = Path("queue")
 INBOX = BASE / "inbox"
+PROCESSING = BASE / "processing"
 DONE = BASE / "done"
 FAILED = BASE / "failed"
 
-for p in (INBOX, DONE, FAILED):
-    p.mkdir(parents=True, exist_ok=True)
+def ensure_dirs():
+    for p in [INBOX, PROCESSING, DONE, FAILED]:
+        p.mkdir(parents=True, exist_ok=True)
 
+def _oldest_json(directory: Path) -> Optional[Path]:
+    files = sorted(directory.glob("*.json"), key=lambda p: p.stat().st_mtime)
+    return files[0] if files else None
 
-def enqueue(item: dict) -> str:
+def dequeue() -> Tuple[Optional[Dict], Optional[Path]]:
+    ensure_dirs()
+    src = _oldest_json(INBOX)
+    if not src: return None, None
     ts = int(time.time() * 1000)
-    path = INBOX / f"{ts}.json"
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(item, f, ensure_ascii=False, indent=2)
-    return str(path)
-
-
-def dequeue() -> Optional[Tuple[str, dict]]:
-    files = sorted(INBOX.glob("*.json"))
-    if not files:
-        return None
-    path = files[0]
-    with open(path, "r", encoding="utf-8") as f:
+    dst = PROCESSING / f"{src.stem}__{ts}.json"
+    shutil.move(str(src), str(dst))
+    with dst.open("r", encoding="utf-8") as f:
         data = json.load(f)
-    return str(path), data
+    return data, dst
 
+def mark_done(proc_path: Path, extra: Optional[Dict] = None):
+    ensure_dirs()
+    with proc_path.open("r", encoding="utf-8") as f:
+        data = json.load(f)
+    if extra: data["_result"] = extra
+    dst = DONE / proc_path.name
+    with dst.open("w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    proc_path.unlink(missing_ok=True)
 
-def mark_done(path: str):
-    src = Path(path)
-    dst = DONE / src.name
-    src.replace(dst)
-
-
-def mark_failed(path: str, reason: str = ""):
-    src = Path(path)
-    dst = FAILED / src.name
-    if src.exists():
-        # 실패 이유를 파일에 남김
-        try:
-            with open(src, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        except Exception:
-            data = {"raw": src.read_text(encoding="utf-8", errors="ignore")}
-        data["__error_reason"] = reason
-        with open(src, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        src.replace(dst)
+def mark_failed(proc_path: Path, reason: str):
+    ensure_dirs()
+    try:
+        with proc_path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        data = {"_corrupted": True}
+    data["_error"] = reason
+    dst = FAILED / proc_path.name
+    with dst.open("w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    proc_path.unlink(missing_ok=True)
 
 
 # # queue_file.py

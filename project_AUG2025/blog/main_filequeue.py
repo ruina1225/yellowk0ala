@@ -1,6 +1,10 @@
 # main_filequeue.py
 import os
 import time
+import json
+import re
+from typing import Any, Dict, Optional
+
 from dotenv import load_dotenv
 from queue_file import dequeue, mark_done, mark_failed
 from naver_api import write_blog_post, NaverApiError
@@ -10,20 +14,62 @@ load_dotenv()
 MAX_RETRY = int(os.getenv("MAX_RETRY", "3"))
 
 
-def process_item(item: dict):
+def _normalize_item(item: Any) -> Dict[str, Optional[str]]:
     """
-    item 예시:
+    큐에서 꺼낸 item이 str/JSON/dict 등 섞여 있어도 일관된 스키마로 변환.
+    최종 스키마: {"title": str, "contents": str, "categoryNo": Optional[str]}
+    """
+    # 1) 문자열이면 JSON 파싱 시도 → 실패 시 그대로 본문으로 사용
+    if isinstance(item, str):
+        s = item.strip()
+        # ```html ... ``` 같은 코드펜스 제거
+        s = re.sub(r"^```(?:html|HTML)?\s*", "", s)
+        s = re.sub(r"\s*```$", "", s)
+        try:
+            item = json.loads(s)  # JSON이면 dict로
+        except Exception:
+            return {"title": "제목 없음", "contents": s, "categoryNo": None}
+
+    # 2) dict가 아니면 방어적으로 문자열화
+    if not isinstance(item, dict):
+        return {"title": "제목 없음", "contents": str(item), "categoryNo": None}
+
+    # 3) 키 정규화 (content/contents/body/payload 모두 수용)
+    title = item.get("title") or item.get("subject") or "제목 없음"
+    contents = (
+        item.get("contents")
+        or item.get("content")
+        or item.get("body")
+        or item.get("payload")
+        or ""
+    )
+
+    if isinstance(contents, str):
+        contents = re.sub(r"^```(?:html|HTML)?\s*", "", contents.strip())
+        contents = re.sub(r"\s*```$", "", contents.strip())
+
+    cat = item.get("categoryNo") or item.get("category_no") or item.get("category")
+    if cat is not None:
+        cat = str(cat)  # 네이버 API는 문자열이 안전
+
+    return {"title": title, "contents": contents, "categoryNo": cat}
+
+
+def process_item(item: Any):
+    """
+    item 예시(dict 권장):
     {
       "title": "파타야 3박4일 골프 패키지",
       "content": "원문 텍스트 또는 HTML",
       "categoryNo": 1
     }
     """
-    title = item.get("title") or "제목 없음"
-    raw_content = item.get("content") or "내용 없음"
-    category_no = item.get("categoryNo")
+    data = _normalize_item(item)
+    title = data["title"]
+    raw_content = data["contents"]
+    category_no = data["categoryNo"]
 
-    # 1) LLM 가공 (필요 없으면 주석 처리)
+    # 1) LLM 가공
     refined_html = run_llm_transform(raw_content)
 
     # 2) 업로드 (재시도)
@@ -61,6 +107,7 @@ if __name__ == "__main__":
         main_loop()
     except KeyboardInterrupt:
         print("\n[STOP] bye!")
+
 
 
 # # main_filequeue.py

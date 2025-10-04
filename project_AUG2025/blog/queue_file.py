@@ -1,8 +1,11 @@
+# queue_file.py
 import json, shutil, time
 from pathlib import Path
 from typing import Optional, Tuple, Dict
 
-BASE = Path("queue")
+# 실행 위치와 무관하게 같은 폴더를 보게 고정
+ROOT = Path(__file__).resolve().parent
+BASE = ROOT / "queue"
 INBOX = BASE / "inbox"
 PROCESSING = BASE / "processing"
 DONE = BASE / "done"
@@ -14,40 +17,68 @@ def ensure_dirs():
 
 def _oldest_json(directory: Path) -> Optional[Path]:
     files = sorted(directory.glob("*.json"), key=lambda p: p.stat().st_mtime)
+    files = [f for f in files if f.stat().st_size > 0]  # 빈 파일 스킵
     return files[0] if files else None
+
+def _move_to_failed(path: Path, reason: str):
+    FAILED.mkdir(parents=True, exist_ok=True)
+    try:
+        raw = path.read_text(encoding="utf-8-sig", errors="ignore")
+        try:
+            data = json.loads(raw)
+        except Exception:
+            data = {"_corrupted": True, "_raw_snippet": raw[:200]}
+        data["_error"] = reason
+        (FAILED / path.name).write_text(
+            json.dumps(data, ensure_ascii=False, indent=2),
+            encoding="utf-8"
+        )
+    finally:
+        path.unlink(missing_ok=True)
 
 def dequeue() -> Tuple[Optional[Dict], Optional[Path]]:
     ensure_dirs()
-    src = _oldest_json(INBOX)
-    if not src: return None, None
-    ts = int(time.time() * 1000)
-    dst = PROCESSING / f"{src.stem}__{ts}.json"
-    shutil.move(str(src), str(dst))
-    with dst.open("r", encoding="utf-8") as f:
-        data = json.load(f)
-    return data, dst
+    while True:
+        src = _oldest_json(INBOX)
+        if not src:
+            return None, None
+        ts = int(time.time() * 1000)
+        dst = PROCESSING / f"{src.stem}__{ts}.json"
+        shutil.move(str(src), str(dst))
+        try:
+            text = dst.read_text(encoding="utf-8-sig")  # ★ BOM 허용
+            data = json.loads(text)
+            # 표준화: processing 파일은 BOM 없는 UTF-8로 다시 저장
+            dst.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            return data, dst
+        except Exception as e:
+            _move_to_failed(dst, f"JSON 파싱 실패(dequeue): {e}")
 
 def mark_done(proc_path: Path, extra: Optional[Dict] = None):
     ensure_dirs()
-    with proc_path.open("r", encoding="utf-8") as f:
-        data = json.load(f)
-    if extra: data["_result"] = extra
+    text = proc_path.read_text(encoding="utf-8-sig")   # ★ BOM 허용
+    try:
+        data = json.loads(text)
+    except Exception as e:
+        _move_to_failed(proc_path, f"JSON 파싱 실패(mark_done): {e}")
+        return
+    if extra:
+        data["_result"] = extra
     dst = DONE / proc_path.name
-    with dst.open("w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    dst.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     proc_path.unlink(missing_ok=True)
 
 def mark_failed(proc_path: Path, reason: str):
     ensure_dirs()
     try:
-        with proc_path.open("r", encoding="utf-8") as f:
-            data = json.load(f)
+        text = proc_path.read_text(encoding="utf-8-sig")
+        data = json.loads(text)
     except Exception:
-        data = {"_corrupted": True}
+        raw = proc_path.read_text(encoding="utf-8-sig", errors="ignore")
+        data = {"_corrupted": True, "_raw_snippet": raw[:200]}
     data["_error"] = reason
     dst = FAILED / proc_path.name
-    with dst.open("w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    dst.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     proc_path.unlink(missing_ok=True)
 
 

@@ -1,112 +1,50 @@
-# main_filequeue.py
-import os
-import time
-import json
-import re
-from typing import Any, Dict, Optional
-
-from dotenv import load_dotenv
 from queue_file import dequeue, mark_done, mark_failed
 from naver_api import write_blog_post, NaverApiError
+from validators import validate_item
 from llm import run_llm_transform
+import os
+from dotenv import load_dotenv
 
 load_dotenv()
-MAX_RETRY = int(os.getenv("MAX_RETRY", "3"))
 
+def process_one():
+    item, proc_path = dequeue()           # ← 파일 경로 변수명은 proc_path로!
+    if not item:
+        return
 
-def _normalize_item(item: Any) -> Dict[str, Optional[str]]:
-    """
-    큐에서 꺼낸 item이 str/JSON/dict 등 섞여 있어도 일관된 스키마로 변환.
-    최종 스키마: {"title": str, "contents": str, "categoryNo": Optional[str]}
-    """
-    # 1) 문자열이면 JSON 파싱 시도 → 실패 시 그대로 본문으로 사용
-    if isinstance(item, str):
-        s = item.strip()
-        # ```html ... ``` 같은 코드펜스 제거
-        s = re.sub(r"^```(?:html|HTML)?\s*", "", s)
-        s = re.sub(r"\s*```$", "", s)
-        try:
-            item = json.loads(s)  # JSON이면 dict로
-        except Exception:
-            return {"title": "제목 없음", "contents": s, "categoryNo": None}
+    try:
+        validate_item(item)
+        title = item.get("title") or "제목 없음"
+        raw = item.get("content") or ""
+        category_no = item.get("categoryNo")
 
-    # 2) dict가 아니면 방어적으로 문자열화
-    if not isinstance(item, dict):
-        return {"title": "제목 없음", "contents": str(item), "categoryNo": None}
+        # 가공 (LLM/템플릿 등)
+        refined_html = run_llm_transform(raw)
 
-    # 3) 키 정규화 (content/contents/body/payload 모두 수용)
-    title = item.get("title") or item.get("subject") or "제목 없음"
-    contents = (
-        item.get("contents")
-        or item.get("content")
-        or item.get("body")
-        or item.get("payload")
-        or ""
-    )
-
-    if isinstance(contents, str):
-        contents = re.sub(r"^```(?:html|HTML)?\s*", "", contents.strip())
-        contents = re.sub(r"\s*```$", "", contents.strip())
-
-    cat = item.get("categoryNo") or item.get("category_no") or item.get("category")
-    if cat is not None:
-        cat = str(cat)  # 네이버 API는 문자열이 안전
-
-    return {"title": title, "contents": contents, "categoryNo": cat}
-
-
-def process_item(item: Any):
-    """
-    item 예시(dict 권장):
-    {
-      "title": "파타야 3박4일 골프 패키지",
-      "content": "원문 텍스트 또는 HTML",
-      "categoryNo": 1
-    }
-    """
-    data = _normalize_item(item)
-    title = data["title"]
-    raw_content = data["contents"]
-    category_no = data["categoryNo"]
-
-    # 1) LLM 가공
-    refined_html = run_llm_transform(raw_content)
-
-    # 2) 업로드 (재시도)
-    for attempt in range(1, MAX_RETRY + 1):
-        try:
-            resp = write_blog_post(title, refined_html, category_no)
-            print(f"[OK] attempt={attempt}", resp)
-            return True, resp
-        except NaverApiError as e:
-            print(f"[NAVER FAIL:{attempt}] {e}")
-        except Exception as e:
-            print(f"[UNEXPECTED:{attempt}] {e}")
-        time.sleep(2 * attempt)
-
-    return False, {"error": "max_retry_exceeded"}
-
+        last_err = None
+        for attempt in range(1, int(os.getenv("MAX_RETRY","3")) + 1):
+            try:
+                result = write_blog_post(title, refined_html, category_no)
+                # ★ 여기! 반드시 'proc_path'를 넘겨야 함
+                mark_done(proc_path, extra=result)
+                return
+            except NaverApiError as e:
+                last_err = str(e)
+        mark_failed(proc_path, last_err or "업로드 실패")
+    except Exception as e:
+        mark_failed(proc_path, str(e))
 
 def main_loop():
-    print("[RUN] file-queue consumer started. Ctrl+C to stop.")
     while True:
-        item = dequeue()
-        if not item:
-            time.sleep(1)
-            continue
-        path, data = item
-        ok, resp = process_item(data)
-        if ok:
-            mark_done(path)
-        else:
-            mark_failed(path, reason=str(resp))
-
+        before = os.listdir("queue/inbox") if os.path.exists("queue/inbox") else []
+        process_one()
+        after = os.listdir("queue/inbox") if os.path.exists("queue/inbox") else []
+        if before == after:
+            break
 
 if __name__ == "__main__":
-    try:
-        main_loop()
-    except KeyboardInterrupt:
-        print("\n[STOP] bye!")
+    main_loop()
+
 
 
 
